@@ -6,6 +6,7 @@
 #include <iostream>
 #include <thread>
 #include <map>
+#include <atomic>
 
 #include <unistd.h>
 #include <cstdio>
@@ -45,7 +46,22 @@ public:
     }
 } AQueue;
 
-int TSO;
+class TSOManager {
+private:
+    atomic<int> tso;
+public:
+    TSOManager() {
+        tso.store(0);
+    }
+
+    int get_tso() {
+        return tso.load();
+    }
+
+    int inc_tso() {
+        return tso.fetch_add(1);
+    }
+} TSO;
 
 struct Key {
     int a;
@@ -91,7 +107,7 @@ string select(char *recv_buffer, int ptr, int size) {
             primary_key = primary_key * 10 + recv_buffer[ptr] - '0';
             ptr++;
         }
-        auto it = db.find(Key{primary_key, TSO});
+        auto it = db.lower_bound(Key{primary_key, TSO.get_tso()});
         if (it == db.end()) {
             return "";
         }
@@ -129,16 +145,64 @@ string insert(char *recv_buffer, int ptr, int size) {
         c = c * 10 + recv_buffer[ptr] - '0';
         ptr++;
     }
-    TSO++;
-    db[Key(a, TSO)] = Value(b, c, 0, 0);
+    int tso = TSO.inc_tso();
+    db[Key(a, tso)] = Value(b, c, 0, 0);
     return "success\n";
 }
 
 string remove(char *recv_buffer, int ptr, int size) {
+    string tmp;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        tmp = tmp + recv_buffer[ptr];
+        ptr++;
+    }
+    if (tmp != "where") {
+        return "failed";
+    }
+
+    int primary_key = 0;
+    ptr += 3;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        primary_key = primary_key * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+
+    // TODO: we should exploit mvcc to implement delete
     return "";
 }
 
 string update(char *recv_buffer, int ptr, int size) {
+    int a = 0, b = 0, c = 0;
+    while (ptr < size && recv_buffer[ptr] != ',') {
+        a = a * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+    ptr++;
+    while (ptr < size && recv_buffer[ptr] != ',') {
+        b = b * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+    ptr++;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        c = c * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+
+    string tmp;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        tmp = tmp + recv_buffer[ptr];
+        ptr++;
+    }
+    if (tmp != "where") {
+        return "failed";
+    }
+
+    int primary_key = 0;
+    ptr += 3;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        primary_key = primary_key * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
     return "";
 }
 
