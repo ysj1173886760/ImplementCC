@@ -5,6 +5,7 @@
 #include <vector>
 #include <iostream>
 #include <thread>
+#include <map>
 
 #include <unistd.h>
 #include <cstdio>
@@ -14,6 +15,8 @@
 #include <cstring>
 #include <queue>
 #include <condition_variable>
+
+using namespace std;
 
 const int workers = 2;
 
@@ -42,14 +45,136 @@ public:
     }
 } AQueue;
 
+int TSO;
+
+struct Key {
+    int a;
+    int seq;
+    Key(int _a, int _seq): a(_a), seq(_seq) {}
+
+    bool operator<(const Key &rhs) const {
+        if (this->a == rhs.a) {
+            return this->seq > rhs.seq;
+        }
+        return this->a < rhs.a;
+    }
+};
+
+struct Value {
+    int b, c;
+    int xmin, xmax;
+
+    Value(): b(0), c(0), xmin(0), xmax(0) {}
+    Value(int _b, int _c, int _xmin, int _xmax): b(_b), c(_c), xmin(_xmin), xmax(_xmax) {}
+};
+
+map<Key, Value> db;
+
+string select(char *recv_buffer, int ptr, int size) {
+    bool scan_all = false;
+    int primary_key = 0;
+    string tmp;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        tmp = tmp + recv_buffer[ptr];
+        ptr++;
+    }
+    if (tmp == "where") {
+        scan_all = false;
+    } else {
+        scan_all = true;
+    }
+
+    string result;
+    if (!scan_all) {
+        ptr += 3;
+        while (ptr < size && recv_buffer[ptr] != ' ') {
+            primary_key = primary_key * 10 + recv_buffer[ptr] - '0';
+            ptr++;
+        }
+        auto it = db.find(Key{primary_key, TSO});
+        if (it == db.end()) {
+            return "";
+        }
+        if (it->first.a != primary_key) {
+            return "";
+        }
+
+        return to_string(it->first.a) + ", " + to_string(it->second.b) + ", " + to_string(it->second.c) + "\n";
+    } else {
+        int lst = -1;
+        for (const auto &[key, value] : db) {
+            if (key.a == lst) {
+                continue;
+            }
+            result += to_string(key.a) + ", " + to_string(value.b) + ", " + to_string(value.c) + "\n";
+            lst = key.a;
+        }
+        return result;
+    }
+}
+
+string insert(char *recv_buffer, int ptr, int size) {
+    int a = 0, b = 0, c = 0;
+    while (ptr < size && recv_buffer[ptr] != ',') {
+        a = a * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+    ptr++;
+    while (ptr < size && recv_buffer[ptr] != ',') {
+        b = b * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+    ptr++;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        c = c * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+    TSO++;
+    db[Key(a, TSO)] = Value(b, c, 0, 0);
+    return "success\n";
+}
+
+string remove(char *recv_buffer, int ptr, int size) {
+    return "";
+}
+
+string update(char *recv_buffer, int ptr, int size) {
+    return "";
+}
+
+// table A(int, primary), B(int), C(int)
+// select or select where A=a(int)
+// insert a(int),b(int),c(int)
+// update a(int),b(int),c(int) where A=a(int)
+// delete where A=a(int)
+std::string process(char *recv_buffer, int size) {
+    std::string op;
+    int ptr = 0;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        op += recv_buffer[ptr];
+        ptr++;
+    }
+    ptr++;
+    if (op == "select") {
+        return select(recv_buffer, ptr, size);
+    } else if (op == "insert") {
+        return insert(recv_buffer, ptr, size);
+    } else if (op == "update") {
+        return update(recv_buffer, ptr, size);
+    } else if (op == "delete") {
+        return remove(recv_buffer, ptr, size);
+    }
+    return "";
+}
+
 void work(int fd) {
 	char recv_buffer[1024] = {0};
-    char send_buffer[1024] = {0};
 
     int n = 1;
     while (n > 0) {
         n = read(fd ,recv_buffer, sizeof(recv_buffer));
-        send(fd, recv_buffer, n, 0);
+        string send_buffer = process(recv_buffer, n);
+        send(fd, send_buffer.c_str(), send_buffer.size(), 0);
     }
 }
 
