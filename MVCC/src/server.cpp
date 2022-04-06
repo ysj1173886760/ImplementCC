@@ -17,6 +17,9 @@
 #include <queue>
 #include <condition_variable>
 
+#include "type.h"
+#include "mvcc.h"
+
 using namespace std;
 
 const int workers = 2;
@@ -48,45 +51,24 @@ public:
 
 class TSOManager {
 private:
-    atomic<int> tso;
+    atomic<int> _tso;
 public:
     TSOManager() {
-        tso.store(0);
+        _tso.store(0);
     }
 
     int get_tso() {
-        return tso.load();
+        return _tso.load();
     }
 
     int inc_tso() {
-        return tso.fetch_add(1);
+        return _tso.fetch_add(1);
     }
 } TSO;
 
-struct Key {
-    int a;
-    int seq;
-    Key(int _a, int _seq): a(_a), seq(_seq) {}
+TransactionManager txn_manager;
 
-    bool operator<(const Key &rhs) const {
-        if (this->a == rhs.a) {
-            return this->seq > rhs.seq;
-        }
-        return this->a < rhs.a;
-    }
-};
-
-struct Value {
-    int b, c;
-    int xmin, xmax;
-
-    Value(): b(0), c(0), xmin(0), xmax(0) {}
-    Value(int _b, int _c, int _xmin, int _xmax): b(_b), c(_c), xmin(_xmin), xmax(_xmax) {}
-};
-
-map<Key, Value> db;
-
-string select(char *recv_buffer, int ptr, int size) {
+string select(char *recv_buffer, int ptr, int size, Transaction &txn) {
     bool scan_all = false;
     int primary_key = 0;
     string tmp;
@@ -99,6 +81,7 @@ string select(char *recv_buffer, int ptr, int size) {
     } else {
         scan_all = true;
     }
+    cout << "doing select" << endl;
 
     string result;
     if (!scan_all) {
@@ -107,71 +90,13 @@ string select(char *recv_buffer, int ptr, int size) {
             primary_key = primary_key * 10 + recv_buffer[ptr] - '0';
             ptr++;
         }
-        auto it = db.lower_bound(Key{primary_key, TSO.get_tso()});
-        if (it == db.end()) {
-            return "";
-        }
-        if (it->first.a != primary_key) {
-            return "";
-        }
-
-        return to_string(it->first.a) + ", " + to_string(it->second.b) + ", " + to_string(it->second.c) + "\n";
+        return txn_manager.select(txn, primary_key, false);
     } else {
-        int lst = -1;
-        for (const auto &[key, value] : db) {
-            if (key.a == lst) {
-                continue;
-            }
-            result += to_string(key.a) + ", " + to_string(value.b) + ", " + to_string(value.c) + "\n";
-            lst = key.a;
-        }
-        return result;
+        return txn_manager.select(txn, 0, true);
     }
 }
 
-string insert(char *recv_buffer, int ptr, int size) {
-    int a = 0, b = 0, c = 0;
-    while (ptr < size && recv_buffer[ptr] != ',') {
-        a = a * 10 + recv_buffer[ptr] - '0';
-        ptr++;
-    }
-    ptr++;
-    while (ptr < size && recv_buffer[ptr] != ',') {
-        b = b * 10 + recv_buffer[ptr] - '0';
-        ptr++;
-    }
-    ptr++;
-    while (ptr < size && recv_buffer[ptr] != ' ') {
-        c = c * 10 + recv_buffer[ptr] - '0';
-        ptr++;
-    }
-    int tso = TSO.inc_tso();
-    db[Key(a, tso)] = Value(b, c, 0, 0);
-    return "success\n";
-}
-
-string remove(char *recv_buffer, int ptr, int size) {
-    string tmp;
-    while (ptr < size && recv_buffer[ptr] != ' ') {
-        tmp = tmp + recv_buffer[ptr];
-        ptr++;
-    }
-    if (tmp != "where") {
-        return "failed";
-    }
-
-    int primary_key = 0;
-    ptr += 3;
-    while (ptr < size && recv_buffer[ptr] != ' ') {
-        primary_key = primary_key * 10 + recv_buffer[ptr] - '0';
-        ptr++;
-    }
-
-    // TODO: we should exploit mvcc to implement delete
-    return "";
-}
-
-string update(char *recv_buffer, int ptr, int size) {
+string insert(char *recv_buffer, int ptr, int size, Transaction &txn) {
     int a = 0, b = 0, c = 0;
     while (ptr < size && recv_buffer[ptr] != ',') {
         a = a * 10 + recv_buffer[ptr] - '0';
@@ -188,13 +113,18 @@ string update(char *recv_buffer, int ptr, int size) {
         ptr++;
     }
 
+    cout << "doing insert" << endl;
+    return txn_manager.insert(txn, a, Value(b, c, 0));
+}
+
+string remove(char *recv_buffer, int ptr, int size, Transaction &txn) {
     string tmp;
     while (ptr < size && recv_buffer[ptr] != ' ') {
         tmp = tmp + recv_buffer[ptr];
         ptr++;
     }
     if (tmp != "where") {
-        return "failed";
+        return "failed\n";
     }
 
     int primary_key = 0;
@@ -203,7 +133,47 @@ string update(char *recv_buffer, int ptr, int size) {
         primary_key = primary_key * 10 + recv_buffer[ptr] - '0';
         ptr++;
     }
-    return "";
+
+    return txn_manager.remove(txn, primary_key);
+}
+
+string update(char *recv_buffer, int ptr, int size, Transaction &txn) {
+    int a = 0, b = 0, c = 0;
+    while (ptr < size && recv_buffer[ptr] != ',') {
+        a = a * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+    ptr++;
+    while (ptr < size && recv_buffer[ptr] != ',') {
+        b = b * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+    ptr++;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        c = c * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+    ptr++;
+
+    string tmp;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        tmp = tmp + recv_buffer[ptr];
+        ptr++;
+    }
+    if (tmp != "where") {
+        return "failed\n";
+    }
+
+    int primary_key = 0;
+    ptr += 3;
+    while (ptr < size && recv_buffer[ptr] != ' ') {
+        primary_key = primary_key * 10 + recv_buffer[ptr] - '0';
+        ptr++;
+    }
+    if (a != primary_key) {
+        return "not supported yet\n";
+    }
+    return txn_manager.update(txn, primary_key, Value(b, c, 0));
 }
 
 // table A(int, primary), B(int), C(int)
@@ -211,7 +181,7 @@ string update(char *recv_buffer, int ptr, int size) {
 // insert a(int),b(int),c(int)
 // update a(int),b(int),c(int) where A=a(int)
 // delete where A=a(int)
-std::string process(char *recv_buffer, int size) {
+std::string process(char *recv_buffer, int size, Transaction &txn) {
     std::string op;
     int ptr = 0;
     while (ptr < size && recv_buffer[ptr] != ' ') {
@@ -220,13 +190,13 @@ std::string process(char *recv_buffer, int size) {
     }
     ptr++;
     if (op == "select") {
-        return select(recv_buffer, ptr, size);
+        return select(recv_buffer, ptr, size, txn);
     } else if (op == "insert") {
-        return insert(recv_buffer, ptr, size);
+        return insert(recv_buffer, ptr, size, txn);
     } else if (op == "update") {
-        return update(recv_buffer, ptr, size);
+        return update(recv_buffer, ptr, size, txn);
     } else if (op == "delete") {
-        return remove(recv_buffer, ptr, size);
+        return remove(recv_buffer, ptr, size, txn);
     }
     return "";
 }
@@ -234,10 +204,11 @@ std::string process(char *recv_buffer, int size) {
 void work(int fd) {
 	char recv_buffer[1024] = {0};
 
+    Transaction txn = txn_manager.beginTxn();
     int n = 1;
     while (n > 0) {
         n = read(fd ,recv_buffer, sizeof(recv_buffer));
-        string send_buffer = process(recv_buffer, n);
+        string send_buffer = process(recv_buffer, n, txn);
         send(fd, send_buffer.c_str(), send_buffer.size(), 0);
     }
 }

@@ -41,7 +41,7 @@ int main() {
 
     for (std::string line; std::getline(std::cin, line); ) {
         memset(recv_buffer, 0, sizeof(recv_buffer));
-        send(sock, line.c_str(), line.size(), 0);
+        int n = send(sock, line.c_str(), line.size(), 0);
         read(sock ,recv_buffer, sizeof(recv_buffer));
         printf("%.*s", sizeof(recv_buffer), recv_buffer);
     }
