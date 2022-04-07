@@ -189,6 +189,17 @@ std::string process(char *recv_buffer, int size, Transaction &txn) {
         ptr++;
     }
     ptr++;
+    if (op == "begin") {
+        txn = txn_manager.beginTxn();
+        return "begin transaction\n";
+    }
+
+    if (txn._tid == 0) {
+        return "not in txn\n";
+    }
+    if (txn_manager.getTxnState(txn._tid) != InProgress) {
+        return "txn is over\n";
+    }
     if (op == "select") {
         return select(recv_buffer, ptr, size, txn);
     } else if (op == "insert") {
@@ -197,6 +208,10 @@ std::string process(char *recv_buffer, int size, Transaction &txn) {
         return update(recv_buffer, ptr, size, txn);
     } else if (op == "delete") {
         return remove(recv_buffer, ptr, size, txn);
+    } else if (op == "abort") {
+        return txn_manager.abortTxn(txn);
+    } else if (op == "commit") {
+        return txn_manager.commitTxn(txn);
     }
     return "";
 }
@@ -204,12 +219,17 @@ std::string process(char *recv_buffer, int size, Transaction &txn) {
 void work(int fd) {
 	char recv_buffer[1024] = {0};
 
-    Transaction txn = txn_manager.beginTxn();
+    Transaction txn(0);
     int n = 1;
     while (n > 0) {
         n = read(fd ,recv_buffer, sizeof(recv_buffer));
         string send_buffer = process(recv_buffer, n, txn);
         send(fd, send_buffer.c_str(), send_buffer.size(), 0);
+    }
+
+    // disconnect will abort the txn
+    if (txn_manager.getTxnState(txn._tid) == InProgress) {
+        txn_manager.abortTxn(txn);
     }
 }
 

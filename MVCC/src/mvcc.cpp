@@ -252,17 +252,17 @@ string TransactionManager::select(Transaction &txn, int primary_key, bool scan_a
 string TransactionManager::commitTxn(Transaction &txn) {
     lock_guard<mutex> guard(_mu);
     if (_txn_state[txn._tid] != InProgress) {
-        return "Aborted";
+        return "Aborted\n";
     }
     _txn_state[txn._tid] = Commited;
     _active_txns.erase(txn._tid);
-    return "Commited";
+    return "Commited\n";
 }
 
 string TransactionManager::abortTxn(Transaction &txn) {
     lock_guard<mutex> guard(_mu);
     if (_txn_state[txn._tid] != InProgress) {
-        return "Aborted";
+        return "Aborted\n";
     }
     // do we really need to do something here?
     for (auto it = txn._rollback_list.rbegin(); it != txn._rollback_list.rend(); it++) {
@@ -272,5 +272,5 @@ string TransactionManager::abortTxn(Transaction &txn) {
     }
     _txn_state[txn._tid] = Abort;
     _active_txns.erase(txn._tid);
-    return "Aborted";
+    return "Aborted\n";
 }
