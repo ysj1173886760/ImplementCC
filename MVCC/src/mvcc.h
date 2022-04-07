@@ -8,16 +8,6 @@
 
 using namespace std;
 
-struct Transaction {
-    set<int> _active_txns;
-    int _tid;
-    vector<RollbackItem> _rollback_list;
-    Transaction(int tid): _tid(tid) {
-        _active_txns.clear();
-        _rollback_list.clear();
-    }
-};
-
 class TransactionManager {
 public:
     mutex _mu;
@@ -25,6 +15,7 @@ public:
     set<int> _active_txns;
     unordered_map<int, TxnState> _txn_state;
     map<Key, Value> _db;
+    map<Key, Value>::iterator getFirstValidRecordL(Transaction &txn, int primary_key);
 public:
     TransactionManager() {
         _cur_tid = 0;
@@ -38,9 +29,10 @@ public:
     string commitTxn(Transaction &txn);
     string abortTxn(Transaction &txn);
     TxnState getTxnState(int tid) {
+        lock_guard<mutex> guard(_mu);
         return _txn_state[tid];
     }
 
-    bool visible(Transaction &txn, const pair<Key, Value> &record);
+    bool visible(Transaction &txn, const pair<Key, Value> &record, bool detect_ww_conflict);
 
 };
