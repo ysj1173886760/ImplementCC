@@ -19,6 +19,6 @@ message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
 
 include_directories(${PROJECT_SOURCE_DIR}/src)
 
-add_executable(server src/server.cpp src/percolator.cpp src/storage.cpp)
+add_executable(server src/server.cpp src/percolator.cpp)
 target_link_libraries(server pthread)
 add_executable(client src/client.cpp)

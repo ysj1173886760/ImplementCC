@@ -3,6 +3,7 @@
 
 #include <set>
 #include <vector>
+#include <unordered_map>
 
 using namespace std;
 
@@ -17,25 +18,20 @@ enum OpType {
     Delete,
 };
 
-struct Default {
-    OpType _type;
+struct Value {
     int _b, _c;
 
-    Default(): _b(0), _c(0), _type(Put) {}
-    Default(int b, int c, OpType type): _b(b), _c(c), _type(type) {}
+    Value(): _b(0), _c(0) {}
+    Value(int b, int c): _b(b), _c(c) {}
 };
 
-struct Transaction {
-    int _start_timestamp;
-    int _commit_timestamp;
-    TxnState _state;
-    unordered_map<int, Default> _write_list;
-    int _primary;
+struct Default {
+    OpType _type;
+    Value _value;
 
-    Transaction(): _start_timestamp(0),
-                   _commit_timestamp(0),
-                   _state(InProgress),
-                   _primary(0) {}
+    Default(): _value(), _type(Put) {}
+    Default(int b, int c, OpType type): _value(b, c), _type(type) {}
+    Default(Value value, OpType type): _value(value), _type(type) {}
 };
 
 struct Key {
@@ -52,12 +48,11 @@ struct Key {
 };
 
 struct Lock {
-    bool _valid;
     int _key;
     int _timestamp;
 
-    Lock(bool valid, int key, int timestamp): _valid(valid), _key(key), _timestamp(timestamp) {}
-    Lock(): _valid(false), _key(0), _timestamp(0) {}
+    Lock(int key, int timestamp): _key(key), _timestamp(timestamp) {}
+    Lock(): _key(0), _timestamp(0) {}
 };
 
 struct Write {

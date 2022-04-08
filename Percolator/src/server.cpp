@@ -18,7 +18,7 @@
 #include <condition_variable>
 
 #include "type.h"
-#include "mvcc.h"
+#include "percolator.h"
 
 using namespace std;
 
@@ -66,7 +66,7 @@ public:
     }
 } TSO;
 
-TransactionManager txn_manager;
+TransactionManager txn_manager(10);
 
 string select(char *recv_buffer, int ptr, int size, Transaction &txn) {
     bool scan_all = false;
@@ -114,7 +114,7 @@ string insert(char *recv_buffer, int ptr, int size, Transaction &txn) {
     }
 
     cout << "doing insert" << endl;
-    return txn_manager.insert(txn, a, Value(b, c, 0));
+    return txn_manager.insert(txn, a, Value(b, c));
 }
 
 string remove(char *recv_buffer, int ptr, int size, Transaction &txn) {
@@ -173,7 +173,7 @@ string update(char *recv_buffer, int ptr, int size, Transaction &txn) {
     if (a != primary_key) {
         return "not supported yet\n";
     }
-    return txn_manager.update(txn, primary_key, Value(b, c, 0));
+    return txn_manager.update(txn, primary_key, Value(b, c));
 }
 
 // table A(int, primary), B(int), C(int)
@@ -194,12 +194,10 @@ std::string process(char *recv_buffer, int size, Transaction &txn) {
         return "begin transaction\n";
     }
 
-    if (txn._tid == 0) {
+    if (txn._start_timestamp == 0) {
         return "not in txn\n";
     }
-    if (txn_manager.getTxnState(txn._tid) != InProgress) {
-        return "txn is over\n";
-    }
+
     if (op == "select") {
         return select(recv_buffer, ptr, size, txn);
     } else if (op == "insert") {
@@ -209,9 +207,13 @@ std::string process(char *recv_buffer, int size, Transaction &txn) {
     } else if (op == "delete") {
         return remove(recv_buffer, ptr, size, txn);
     } else if (op == "abort") {
-        return txn_manager.abortTxn(txn);
+        return "Aborted\n";
     } else if (op == "commit") {
-        return txn_manager.commitTxn(txn);
+        if (!txn_manager.commitTxn(txn)) {
+            txn_manager.abortTxn(txn);
+            return "Aborted\n";
+        }
+        return "Commited\n";
     }
     return "";
 }
@@ -219,7 +221,7 @@ std::string process(char *recv_buffer, int size, Transaction &txn) {
 void work(int fd) {
 	char recv_buffer[1024] = {0};
 
-    Transaction txn(0);
+    Transaction txn;
     int n = 1;
     while (n > 0) {
         n = read(fd ,recv_buffer, sizeof(recv_buffer));
@@ -227,10 +229,6 @@ void work(int fd) {
         send(fd, send_buffer.c_str(), send_buffer.size(), 0);
     }
 
-    // disconnect will abort the txn
-    if (txn_manager.getTxnState(txn._tid) == InProgress) {
-        txn_manager.abortTxn(txn);
-    }
 }
 
 void worker_thread() {
