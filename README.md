@@ -18,7 +18,7 @@ I've tested the common anomaly, such as unrepeatable-read, phatom-read. And it a
 
 This implementation of MVCC is very similiar to that of Postgres, it can detect lost update automatically.
 
-I havn't write strong test to test this implementation, so there may be some bugs left.
+I havn't write strong test to test this implementation, so there may have some bugs left.
 
 ## Lessons
 
@@ -30,10 +30,10 @@ While i was trying to implement lost-update detection, i found that i need to ad
 
 ## Percolator 
 
-I've tested percolator just like what i do to mvcc. It may still contains some bugs, and i've not test the machine failure since i didn't mimic the RPC request.
+I've tested percolator just like what i did to mvcc. It may still contains some bugs, and i've not test the machine failure scenario since i didn't mimic the RPC request.
 
 Percolator requires single-row transaction, which requires WAL to implement it. But i think we just need a small latch while updating the row. i.e. avoid race conditions. 
 
 Consider the situation while commiting, if we didn't guarantee the atomicity of writing to a single row. In pre-write phase, if we managed to confirm the write but failed to clean the lock, other transactions will clean it because it will try to find the corresponding record in CF_write. And if we failed to confirm the write, then the result should be determined by the primary. So i think while porting this toy implementation to some kv server, the only thing we need to do is acquire the latch on this row.
 
-I havn't implement cleaning up the locks, but i think that would be easy to do. A easist implementation would be wait for some time, and if lock still exists, then we will iterate the CF_write in primary to confirm whether txn has commited. And if is not, then we can clean the lock.
+I havn't implement cleaning up the locks, but i think that would be easy to do. A easist implementation would be waiting for some time, and if lock still exists, then we will iterate the CF_write in primary to confirm whether txn has commited. And if is not, then we can clean the lock.
