@@ -90,7 +90,6 @@ string TransactionManager::update(Transaction &txn, int primary_key, const Value
     // get newest record
     Value val;
     if (!get(txn, primary_key, val)) {
-        // record already exists
         return "record not exists\n";
     }
 
@@ -102,7 +101,6 @@ string TransactionManager::remove(Transaction &txn, int primary_key) {
     // get newest record
     Value val;
     if (!get(txn, primary_key, val)) {
-        // record already exists
         return "record not exists\n";
     }
 
